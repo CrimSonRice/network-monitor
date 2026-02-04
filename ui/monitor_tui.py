@@ -200,8 +200,8 @@ def build_header(
     page_size: int,
 ) -> Panel:
     with lock:
-        online = sum(1 for ip in target_list if stats.get(ip, {}).get("status") == "UP")
-        offline = len(target_list) - online
+        total_online = sum(1 for ip in all_targets if stats.get(ip, {}).get("status") == "UP")
+        total_offline = len(all_targets) - total_online
     total = len(all_targets)
     shown = len(target_list)
     filter_info = ""
@@ -219,8 +219,8 @@ def build_header(
     nav_hint = "  |  [dim]← → prev/next  Home/End first/last[/]"
     return Panel(
         f"[bold white]TOTAL:[/] {total}  |  "
-        f"[bold green]ONLINE:[/] {online}  |  "
-        f"[bold red]OFFLINE:[/] {offline}  |  "
+        f"[bold green]Total online:[/] {total_online}  |  "
+        f"[bold red]Total offline:[/] {total_offline}  |  "
         f"[dim]Interval: {PING_INTERVAL}s  Window: {WINDOW_SIZE}[/]"
         f"{filter_info}{status_info}{page_info}{nav_hint}"
         f"  |  [dim]Esc=clear  u=UP d=DOWN a=all[/]",
