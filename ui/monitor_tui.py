@@ -30,7 +30,7 @@ console = Console()
 PING_INTERVAL = float(__import__("os").environ.get("PING_INTERVAL", "1.0"))
 WINDOW_SIZE = int(__import__("os").environ.get("WINDOW_SIZE", "30"))
 REFRESH_RATE = float(__import__("os").environ.get("REFRESH_RATE", "0.8"))
-PAGE_SIZE = int(__import__("os").environ.get("PAGE_SIZE", "25"))  # targets per page (300+ IPs)
+PAGE_SIZE = int(__import__("os").environ.get("PAGE_SIZE", "100"))  # targets per page (100 IPs per page)
 
 # Ping command: Windows uses -n 1 -w ms; Linux/macOS uses -c 1 -W seconds
 IS_WINDOWS = platform.system().lower() == "windows"
@@ -380,7 +380,7 @@ def main() -> None:
         type=int,
         default=PAGE_SIZE,
         metavar="N",
-        help="Targets per page (for 300+ IPs). Default 25. Use n/p or arrows (Windows) to change page.",
+        help="Targets per page. Default 100. Use ←/→ (Windows) to change page.",
     )
     args = parser.parse_args()
 
