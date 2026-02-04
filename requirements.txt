@@ -1,0 +1,32 @@
+# Network Monitor — production backend
+# Python 3.12+
+
+# API
+fastapi>=0.115.0,<0.116
+uvicorn[standard]>=0.32.0,<0.33
+python-multipart>=0.0.12
+
+# Config & validation
+pydantic>=2.10.0,<3
+pydantic-settings>=2.6.0,<3
+
+# Security
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Async & perf
+anyio>=4.6.0
+httpx>=0.28.0
+
+# System / monitoring
+psutil>=6.0.0
+
+# TUI (Rich dashboard)
+rich>=13.0.0
+
+# Dev & test
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+
+# Optional: Redis for cache/rate limit (uncomment for multi-instance)
+# redis>=5.2.0
