@@ -69,7 +69,7 @@ python -m ui.monitor_tui ... --page-size 30  # 30 per page (for 300+ IPs)
 
 **Filters (Windows, while running):** Type to filter by text; **Esc** clears. **u** = UP only, **d** = DOWN only, **a** = all.
 
-**Pagination:** Header shows "Page X of Y" and "Targets A–B of N". **←** = previous page, **→** = next page, **Home** = first page, **End** = last page. Use `--page-size N` or env `PAGE_SIZE` to set targets per page (default 25).
+**Pagination:** Header shows "Page X of Y" and "Targets A–B of N". **←** = previous page, **→** = next page, **Home** = first page, **End** = last page. Use `--page-size N` or env `PAGE_SIZE` to set targets per page (default 100).
 
 Optional env: `PING_INTERVAL`, `WINDOW_SIZE`, `REFRESH_RATE`, `PAGE_SIZE`. Press **Ctrl+C** to exit.
 
