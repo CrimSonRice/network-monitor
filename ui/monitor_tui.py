@@ -88,15 +88,19 @@ filter_lock = threading.Lock()
 status_filter: str = "all"
 # Pagination: 1-based current page (for 300+ IPs, avoid zooming out)
 current_page: int = 1
+# Runtime-adjustable ping interval (single-element list for shared mutable)
+current_ping_interval: list[float] = [PING_INTERVAL]
+INTERVAL_PRESETS: list[float] = [0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
 
 
 # -----------------------------------------------------------------------------
 # Ping worker (runs in thread per target)
 # -----------------------------------------------------------------------------
 
-def ping_worker(target: str, interval: float) -> None:
+def ping_worker(target: str, _initial_interval: float) -> None:
     cmd = ["ping", PING_COUNT, "1", PING_TIMEOUT, PING_TIMEOUT_VAL, target]
     while not stop_event.is_set():
+        interval = current_ping_interval[0]
         start = time.perf_counter()
         try:
             result = subprocess.run(
@@ -221,9 +225,9 @@ def build_header(
         f"[bold white]TOTAL:[/] {total}  |  "
         f"[bold green]Total online:[/] {total_online}  |  "
         f"[bold red]Total offline:[/] {total_offline}  |  "
-        f"[dim]Interval: {PING_INTERVAL}s  Window: {WINDOW_SIZE}[/]"
+        f"[dim]Interval: {current_ping_interval[0]}s  Window: {WINDOW_SIZE}[/]"
         f"{filter_info}{status_info}{page_info}{nav_hint}"
-        f"  |  [dim]Esc=clear  u=UP d=DOWN a=all[/]",
+        f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval[/]",
         style="cyan",
         border_style="bright_blue",
     )
@@ -396,6 +400,7 @@ def main() -> None:
 
     # Apply CLI overrides
     PING_INTERVAL = args.interval
+    current_ping_interval[0] = PING_INTERVAL
     WINDOW_SIZE = args.window
     REFRESH_RATE = args.refresh
     page_size = max(1, args.page_size)
@@ -473,6 +478,14 @@ def main() -> None:
                             with filter_lock:
                                 status_filter = "all"
                                 current_page = 1
+                            continue
+                        if char_lower == "i":
+                            # Cycle ping interval: next preset (0.5 -> 1 -> 2 -> 5 -> 0.5)
+                            idx = next(
+                                (i for i, p in enumerate(INTERVAL_PRESETS) if p >= current_ping_interval[0]),
+                                0,
+                            )
+                            current_ping_interval[0] = INTERVAL_PRESETS[(idx + 1) % len(INTERVAL_PRESETS)]
                             continue
                         if char.isprintable():
                             with filter_lock:
