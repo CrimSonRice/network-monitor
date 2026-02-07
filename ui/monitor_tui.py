@@ -176,12 +176,15 @@ def apply_filter(
     status: str,
 ) -> list[str]:
     """
-    Apply text filter (substring) and reachability filter (all/up/down).
+    Apply text filter (substring). Query can be multiple terms separated by comma or space; match any.
     status: "all" | "up" | "down"
     """
     if query and query.strip():
-        q = query.strip().lower()
-        targets = [t for t in all_targets if q in t.lower()]
+        terms = [p.strip().lower() for p in re.split(r"[,\s]+", query.strip()) if p.strip()]
+        if terms:
+            targets = [t for t in all_targets if any(term in t.lower() for term in terms)]
+        else:
+            targets = list(all_targets)
     else:
         targets = list(all_targets)
     if status == "all":
@@ -237,7 +240,7 @@ def build_header(
         f"[bold]SSH:[/] [green]{ssh_ok}[/]/[white]{total}[/]  |  "
         f"[dim]Interval: {current_ping_interval[0]}s  Window: {WINDOW_SIZE}[/]"
         f"{filter_info}{status_info}{page_info}{nav_hint}"
-        f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval[/]",
+        f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval  filter: comma/space = multiple[/]",
         style="cyan",
         border_style="bright_blue",
     )
