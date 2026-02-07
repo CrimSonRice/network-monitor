@@ -24,7 +24,7 @@ PING_INTERVAL = float(__import__("os").environ.get("PING_INTERVAL", "1.0"))
 WINDOW_SIZE = int(__import__("os").environ.get("WINDOW_SIZE", "30"))
 REFRESH_RATE = float(__import__("os").environ.get("REFRESH_RATE", "0.8"))
 PAGE_SIZE = int(__import__("os").environ.get("PAGE_SIZE", "100"))
-SSH_CHECK_INTERVAL = float(__import__("os").environ.get("SSH_CHECK_INTERVAL", "300.0"))
+SSH_CHECK_INTERVAL = float(__import__("os").environ.get("SSH_CHECK_INTERVAL", "600.0"))
 SSH_PORT = int(__import__("os").environ.get("SSH_PORT", "22"))
 SSH_CONNECT_TIMEOUT = 2
 
@@ -409,7 +409,7 @@ def main() -> None:
         type=float,
         default=SSH_CHECK_INTERVAL,
         metavar="SEC",
-        help="SSH port check cycle interval (seconds). Default 300 (5 min).",
+        help="SSH port check cycle interval (seconds). Default 600 (10 min).",
     )
     parser.add_argument(
         "--ssh-port",
