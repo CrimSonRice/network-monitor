@@ -218,7 +218,7 @@ def build_header(
     with lock:
         total_online = sum(1 for ip in all_targets if stats.get(ip, {}).get("status") == "UP")
         total_offline = len(all_targets) - total_online
-        ssh_ok = sum(1 for ip in all_targets if stats.get(ip, {}).get("ssh") == "OK")
+        ssh_unreachable = sum(1 for ip in all_targets if stats.get(ip, {}).get("ssh") != "OK")
     total = len(all_targets)
     shown = len(target_list)
     filter_info = ""
@@ -237,7 +237,7 @@ def build_header(
         f"[bold white]TOTAL:[/] {total}  |  "
         f"[bold green]Total online:[/] {total_online}  |  "
         f"[bold red]Total offline:[/] {total_offline}  |  "
-        f"[bold]SSH:[/] [green]{ssh_ok}[/]/[white]{total}[/]  |  "
+        f"[bold]No SSH:[/] [red]{ssh_unreachable}[/]  |  "
         f"[dim]Interval: {current_ping_interval[0]}s  Window: {WINDOW_SIZE}[/]"
         f"{filter_info}{status_info}{page_info}{nav_hint}"
         f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval  filter: comma/space = multiple[/]",
