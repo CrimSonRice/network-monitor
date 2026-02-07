@@ -46,7 +46,6 @@ class _JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             log_obj["exception"] = self.formatException(record.exc_info)
-        # Merge extra dict into top level for structured search
         for key, value in record.__dict__.items():
             if key not in ("name", "msg", "args", "created", "filename", "funcName", "levelname", "levelno", "lineno", "module", "msecs", "pathname", "process", "processName", "relativeCreated", "stack_info", "exc_info", "message", "taskName"):
                 log_obj[key] = value

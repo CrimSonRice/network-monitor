@@ -43,7 +43,6 @@ async def ready(settings: SettingsDep) -> ReadinessResponse:
     Add checks here (e.g. Redis ping, DB connection) for full readiness.
     """
     checks: dict[str, str] = {"config": "loaded"}
-    # Example: checks["database"] = "ok" after pool check
     return ReadinessResponse(ready=True, checks=checks)
 
 

@@ -1,7 +1,4 @@
-"""
-Security utilities: JWT skeleton, input sanitization, safe DB patterns.
-Production: integrate with real identity provider and parameterized queries.
-"""
+"""Security utilities: JWT, input sanitization."""
 
 import re
 from datetime import UTC, datetime, timedelta
@@ -12,7 +9,6 @@ from passlib.context import CryptContext
 
 from core.config import get_settings
 
-# Password hashing for future auth (e.g. admin users)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -47,7 +43,6 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-# Patterns for input sanitization (reduce XSS / injection surface)
 _UNSAFE_PATTERN = re.compile(r"[<>\"';&]|(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|EXEC)\b)", re.I)
 
 

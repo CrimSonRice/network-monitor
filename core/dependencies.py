@@ -11,7 +11,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from core.config import Settings, get_settings
 from core.security import verify_token
 
-# Type alias for injected settings
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 security_scheme = HTTPBearer(auto_error=False)
@@ -50,6 +49,5 @@ async def get_current_user_required(
     return payload
 
 
-# Type aliases for route injection
 CurrentUserOptional = Annotated[dict | None, Depends(get_current_user_optional)]
 CurrentUserRequired = Annotated[dict, Depends(get_current_user_required)]

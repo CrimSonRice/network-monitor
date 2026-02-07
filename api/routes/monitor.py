@@ -49,13 +49,11 @@ async def get_system_status(
     Example async endpoint: system status summary.
     Uses optional auth; response can vary by user if needed.
     """
-    # Cache key; include auth state if you want different cache for anon vs auth
     cache_key = "monitor:status"
     if settings.CACHE_ENABLED:
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
-    # Non-blocking async work
     result = await MonitorService.get_system_status()
     if settings.CACHE_ENABLED:
         await cache_set(cache_key, result, ttl_seconds=settings.CACHE_TTL_SECONDS)
@@ -73,7 +71,7 @@ async def check_host(
     """
     host = sanitize_string(body.host, max_length=253)
     if not host:
-        host = body.host[:253]  # Fallback for validation only
+        host = body.host[:253]
     result = await MonitorService.check_host_async(host, body.timeout_seconds)
     return HostCheckResponse(
         host=result["host"],
@@ -91,5 +89,4 @@ async def get_stats(
     """
     Example of validated query params. Use limit for pagination; never trust raw input in queries.
     """
-    # In real implementation: fetch from DB with parameterized query, e.g. LIMIT %s
     return {"limit": limit, "items": [], "total": 0}

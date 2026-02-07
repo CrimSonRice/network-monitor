@@ -1,7 +1,4 @@
-"""
-Middleware: rate limiting, secure headers, request timing, error handling.
-Order matters: timing wraps innermost; then security; then rate limit; then exception handler.
-"""
+"""Middleware: rate limiting, secure headers, request timing."""
 
 import time
 from typing import Callable
@@ -13,8 +10,6 @@ from core.config import get_settings
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-# In-memory rate limit store. Production: use Redis or similar for multi-instance.
 _rate_limit_store: dict[str, list[float]] = {}
 
 
@@ -71,7 +66,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window = settings.RATE_LIMIT_WINDOW_SECONDS
         max_requests = settings.RATE_LIMIT_REQUESTS
 
-        # Prune old entries for this client
         if client_ip not in _rate_limit_store:
             _rate_limit_store[client_ip] = []
         timestamps = _rate_limit_store[client_ip]
@@ -95,7 +89,6 @@ def _get_client_ip(request: Request) -> str:
     if settings.TRUST_PROXY:
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            # First address is client; optional PROXY_HEADER_COUNT for multiple hops
             parts = [p.strip() for p in forwarded.split(",")]
             idx = max(0, len(parts) - settings.PROXY_HEADER_COUNT)
             return parts[idx] if idx < len(parts) else parts[0]

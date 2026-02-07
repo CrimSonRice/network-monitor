@@ -1,8 +1,4 @@
-"""
-Application configuration via environment variables.
-Uses pydantic-settings for validation and .env support.
-Designed for 12-factor app: config from env, no secrets in code.
-"""
+"""Application configuration via environment variables."""
 
 from functools import lru_cache
 from typing import Literal
@@ -18,40 +14,33 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore",  # Ignore unknown env vars for cloud flexibility
+        extra="ignore",
     )
 
-    # Application
     APP_NAME: str = Field(default="network-monitor", description="Service name for logs and headers")
     ENVIRONMENT: Literal["development", "staging", "production"] = Field(
         default="development", description="Deployment environment"
     )
     DEBUG: bool = Field(default=False, description="Enable debug mode")
 
-    # Server (Uvicorn/Gunicorn)
     HOST: str = Field(default="0.0.0.0", description="Bind address; 0.0.0.0 for containers")
     PORT: int = Field(default=8000, ge=1, le=65535)
     WORKERS: int = Field(default=1, ge=1, description="Workers; use 1 for async, scale via replicas")
 
-    # Security
     SECRET_KEY: str = Field(default="change-me-in-production", min_length=32)
     JWT_ALGORITHM: str = Field(default="HS256")
     JWT_ACCESS_EXPIRE_MINUTES: int = Field(default=30, ge=1)
     CORS_ORIGINS: str = Field(default="*", description="Comma-separated origins or *")
 
-    # Rate limiting (DDoS / anti-spam preparation)
     RATE_LIMIT_REQUESTS: int = Field(default=100, ge=1)
     RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60, ge=1)
 
-    # Proxy / Cloudflare (trust X-Forwarded-* when behind Nginx/Cloudflare)
     TRUST_PROXY: bool = Field(default=True, description="Trust X-Forwarded-* headers")
     PROXY_HEADER_COUNT: int = Field(default=1, ge=0, description="Number of proxies in front")
 
-    # Logging
     LOG_LEVEL: str = Field(default="INFO")
     LOG_JSON: bool = Field(default=False, description="JSON logs for cloud aggregators")
 
-    # Cache (example: in-memory or Redis key prefix)
     CACHE_TTL_SECONDS: int = Field(default=60, ge=0)
     CACHE_ENABLED: bool = Field(default=True)
 

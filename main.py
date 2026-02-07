@@ -53,16 +53,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Middleware order: last added = outermost. Request flow: Timing -> Secure -> RateLimit -> routes
     app.add_middleware(RequestTimingMiddleware)
     app.add_middleware(SecureHeadersMiddleware)
-    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RateLimitMiddleware    )
 
-    # Routers
     app.include_router(health_router)
     app.include_router(monitor_router)
 
-    # Global exception handler: structured errors, no stack in response in prod
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         return JSONResponse(

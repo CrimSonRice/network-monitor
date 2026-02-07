@@ -54,7 +54,6 @@ class MonitorService:
         loop = asyncio.get_event_loop()
         start = loop.time()
         try:
-            # Run getaddrinfo + connect in executor; DNS/socket can block
             result = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
@@ -86,7 +85,6 @@ def _check_host_sync(host: str, timeout: float, port: int = 80) -> bool:
     host is already validated/sanitized by API layer. Connects to given port (default 80).
     """
     try:
-        # Use getaddrinfo for host resolution; connect to first result
         family, _, _, _, sockaddr = socket.getaddrinfo(host, port, socket.AF_UNSPEC)[0]
         sock = socket.socket(family, socket.SOCK_STREAM)
         sock.settimeout(timeout)

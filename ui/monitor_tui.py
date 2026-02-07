@@ -1,12 +1,9 @@
-"""
-Network Monitor TUI — live ping dashboard with Rich.
-Run: python -m ui.monitor_tui [IPs]  or  python -m ui.monitor_tui (prompt for IPs)
-Improvements: IP validation, configurable options, clean shutdown, optional config from env.
-"""
+"""Network Monitor TUI — live ping dashboard with Rich."""
 
 import argparse
 import platform
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -23,24 +20,19 @@ from rich.text import Text
 
 console = Console()
 
-# -----------------------------------------------------------------------------
-# Config (CLI + optional env; no heavy deps so TUI runs standalone)
-# -----------------------------------------------------------------------------
-
 PING_INTERVAL = float(__import__("os").environ.get("PING_INTERVAL", "1.0"))
 WINDOW_SIZE = int(__import__("os").environ.get("WINDOW_SIZE", "30"))
 REFRESH_RATE = float(__import__("os").environ.get("REFRESH_RATE", "0.8"))
-PAGE_SIZE = int(__import__("os").environ.get("PAGE_SIZE", "100"))  # targets per page (100 IPs per page)
+PAGE_SIZE = int(__import__("os").environ.get("PAGE_SIZE", "100"))
+SSH_CHECK_INTERVAL = float(__import__("os").environ.get("SSH_CHECK_INTERVAL", "300.0"))
+SSH_PORT = int(__import__("os").environ.get("SSH_PORT", "22"))
+SSH_CONNECT_TIMEOUT = 2
 
 # Ping command: Windows uses -n 1 -w ms; Linux/macOS uses -c 1 -W seconds
 IS_WINDOWS = platform.system().lower() == "windows"
 PING_COUNT = "-n" if IS_WINDOWS else "-c"
-PING_TIMEOUT = "-w" if IS_WINDOWS else "-W"  # Windows: ms; Unix: seconds
+PING_TIMEOUT = "-w" if IS_WINDOWS else "-W"
 PING_TIMEOUT_VAL = "1000" if IS_WINDOWS else "1"
-
-# -----------------------------------------------------------------------------
-# IP validation (standalone; no project core import for easy run)
-# -----------------------------------------------------------------------------
 
 IPV4_RE = re.compile(
     r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
@@ -65,37 +57,25 @@ def parse_targets(raw: str) -> list[str]:
     return [t for part in raw.split(",") if (t := validate_target(part))]
 
 
-# -----------------------------------------------------------------------------
-# State (thread-safe)
-# -----------------------------------------------------------------------------
-
 def make_stats():
     return {
         "history": deque(maxlen=WINDOW_SIZE),
         "latency": 0,
         "status": "DOWN",
+        "ssh": "—",
     }
 
 
 stats: dict[str, dict] = {}
 lock = threading.Lock()
 stop_event = threading.Event()
-
-# Search filter: main thread reads, keyboard thread (Windows) writes
 filter_query: str = ""
 filter_lock = threading.Lock()
-# Reachability filter: "all" | "up" | "down"
 status_filter: str = "all"
-# Pagination: 1-based current page (for 300+ IPs, avoid zooming out)
 current_page: int = 1
-# Runtime-adjustable ping interval (single-element list for shared mutable)
 current_ping_interval: list[float] = [PING_INTERVAL]
 INTERVAL_PRESETS: list[float] = [0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
 
-
-# -----------------------------------------------------------------------------
-# Ping worker (runs in thread per target)
-# -----------------------------------------------------------------------------
 
 def ping_worker(target: str, _initial_interval: float) -> None:
     cmd = ["ping", PING_COUNT, "1", PING_TIMEOUT, PING_TIMEOUT_VAL, target]
@@ -139,21 +119,44 @@ def ping_worker(target: str, _initial_interval: float) -> None:
             hist = list(stats[target]["history"])
             stats[target]["status"] = "UP" if sum(hist[-3:]) >= 2 else "DOWN"
 
-        # Sleep in small steps so we can exit quickly on stop_event
         deadline = time.perf_counter() + interval
         while time.perf_counter() < deadline and not stop_event.is_set():
             time.sleep(0.1)
 
 
-# -----------------------------------------------------------------------------
-# UI (Rich)
-# -----------------------------------------------------------------------------
+def ssh_check_one(target: str, port: int, timeout: float) -> bool:
+    """Try TCP connect to port; return True if connection succeeded."""
+    try:
+        sock = socket.create_connection((target, port), timeout=timeout)
+        sock.close()
+        return True
+    except (socket.timeout, socket.error, OSError):
+        return False
+
+
+def ssh_checker_worker(targets: list[str], interval: float, port: int) -> None:
+    """Loop through targets periodically; update stats['ssh'] for each. Runs on its own interval."""
+    while not stop_event.is_set():
+        for target in targets:
+            if stop_event.is_set():
+                break
+            with lock:
+                if target not in stats:
+                    continue
+            ok = ssh_check_one(target, port, SSH_CONNECT_TIMEOUT)
+            with lock:
+                if target in stats:
+                    stats[target]["ssh"] = "OK" if ok else "NO"
+            time.sleep(0.2)
+        deadline = time.perf_counter() + interval
+        while time.perf_counter() < deadline and not stop_event.is_set():
+            time.sleep(0.5)
+
 
 def uptime_bar(ratio: float, width: int = 10) -> str:
     """Uptime bar: bracket style with color by range (green / yellow / red)."""
     filled = min(int(round(ratio * width / 100)), width)
     empty = width - filled
-    # Color by uptime: green ≥80%, yellow 50–79%, red <50%
     if ratio <= 0:
         color = "dim"
     elif ratio >= 80:
@@ -176,20 +179,26 @@ def apply_filter(
     Apply text filter (substring) and reachability filter (all/up/down).
     status: "all" | "up" | "down"
     """
-    # Text filter
     if query and query.strip():
         q = query.strip().lower()
         targets = [t for t in all_targets if q in t.lower()]
     else:
         targets = list(all_targets)
-    # Reachability filter
     if status == "all":
         return targets
     with lock:
         if status == "up":
-            return [t for t in targets if stats.get(t, {}).get("status") == "UP"]
+            return [
+                t for t in targets
+                if stats.get(t, {}).get("status") == "UP"
+                and stats.get(t, {}).get("ssh") == "OK"
+            ]
         if status == "down":
-            return [t for t in targets if stats.get(t, {}).get("status") == "DOWN"]
+            return [
+                t for t in targets
+                if stats.get(t, {}).get("status") == "DOWN"
+                or stats.get(t, {}).get("ssh") == "NO"
+            ]
     return targets
 
 
@@ -206,6 +215,7 @@ def build_header(
     with lock:
         total_online = sum(1 for ip in all_targets if stats.get(ip, {}).get("status") == "UP")
         total_offline = len(all_targets) - total_online
+        ssh_ok = sum(1 for ip in all_targets if stats.get(ip, {}).get("ssh") == "OK")
     total = len(all_targets)
     shown = len(target_list)
     filter_info = ""
@@ -213,10 +223,9 @@ def build_header(
         filter_info = f"  |  [yellow]Filter:[/] [bold]{filter_str.strip()}[/]  [dim]({shown}/{total})[/]"
     status_info = ""
     if status_filter_val == "up":
-        status_info = "  |  [green]Status: UP only[/]"
+        status_info = "  |  [green]Status: UP + SSH OK[/]"
     elif status_filter_val == "down":
-        status_info = "  |  [red]Status: DOWN only[/]"
-    # Pagination: "Page X of Y" and "Targets A-B of N"
+        status_info = "  |  [red]Status: DOWN or no SSH[/]"
     start_one = (page - 1) * page_size + 1 if total_filtered else 0
     end_one = min(page * page_size, total_filtered) if total_filtered else 0
     page_info = f"  |  [bold cyan]Page[/] {page}/{total_pages}  [dim]Targets {start_one}-{end_one} of {total_filtered}[/]"
@@ -225,6 +234,7 @@ def build_header(
         f"[bold white]TOTAL:[/] {total}  |  "
         f"[bold green]Total online:[/] {total_online}  |  "
         f"[bold red]Total offline:[/] {total_offline}  |  "
+        f"[bold]SSH:[/] [green]{ssh_ok}[/]/[white]{total}[/]  |  "
         f"[dim]Interval: {current_ping_interval[0]}s  Window: {WINDOW_SIZE}[/]"
         f"{filter_info}{status_info}{page_info}{nav_hint}"
         f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval[/]",
@@ -243,6 +253,7 @@ def build_table(target_list: list[str]) -> Table:
     table.add_column("TARGET", ratio=1.5, style="white")
     table.add_column("ST", justify="center", ratio=0.4)
     table.add_column("REACHABILITY", justify="center", ratio=1.2)
+    table.add_column("SSH", justify="center", ratio=0.5)
     table.add_column("MS", justify="right", ratio=0.5)
     table.add_column("UPTIME", ratio=1.5)
     table.add_column("%", justify="right", ratio=0.5)
@@ -258,10 +269,18 @@ def build_table(target_list: list[str]) -> Table:
             else:
                 status = "[bold red]DN[/]"
                 reach = "[red]Unreachable[/]"
+            ssh_val = data.get("ssh", "—")
+            if ssh_val == "OK":
+                ssh_cell = "[bold green]OK[/]"
+            elif ssh_val == "NO":
+                ssh_cell = "[red]NO[/]"
+            else:
+                ssh_cell = "[dim]—[/]"
             table.add_row(
                 target,
                 status,
                 reach,
+                ssh_cell,
                 str(data["latency"]),
                 uptime_bar(uptime),
                 f"{uptime:.0f}%",
@@ -328,10 +347,6 @@ def build_layout(
     return root
 
 
-# -----------------------------------------------------------------------------
-# Entry
-# -----------------------------------------------------------------------------
-
 def main() -> None:
     global PING_INTERVAL, WINDOW_SIZE, REFRESH_RATE
     parser = argparse.ArgumentParser(
@@ -386,9 +401,22 @@ def main() -> None:
         metavar="N",
         help="Targets per page. Default 100. Use ←/→ (Windows) to change page.",
     )
+    parser.add_argument(
+        "--ssh-interval",
+        type=float,
+        default=SSH_CHECK_INTERVAL,
+        metavar="SEC",
+        help="SSH port check cycle interval (seconds). Default 300 (5 min).",
+    )
+    parser.add_argument(
+        "--ssh-port",
+        type=int,
+        default=SSH_PORT,
+        metavar="PORT",
+        help="TCP port for SSH check (default 22).",
+    )
     args = parser.parse_args()
 
-    # Resolve target list: CLI args (join with comma for "a,b,c" or multiple args)
     raw = ",".join(args.targets) if args.targets else ""
     if not raw and not args.no_prompt:
         console.print("[bold cyan]NETWORK MONITOR[/bold cyan]")
@@ -398,25 +426,23 @@ def main() -> None:
         console.print("[red]No valid targets. Enter IPs or hostnames (e.g. 8.8.8.8, google.com).[/red]")
         sys.exit(1)
 
-    # Apply CLI overrides
     PING_INTERVAL = args.interval
     current_ping_interval[0] = PING_INTERVAL
     WINDOW_SIZE = args.window
     REFRESH_RATE = args.refresh
     page_size = max(1, args.page_size)
+    ssh_interval = max(5.0, args.ssh_interval)
+    ssh_port = max(1, min(65535, args.ssh_port))
 
-    # Initial filter (CLI)
     global filter_query, status_filter, current_page
     with filter_lock:
         filter_query = (args.filter or "").strip()
         status_filter = args.status
         current_page = 1
 
-    # Init state
     for t in targets:
         stats[t] = make_stats()
 
-    # Start ping threads
     threads = [
         threading.Thread(target=ping_worker, args=(t, PING_INTERVAL), daemon=True)
         for t in targets
@@ -424,7 +450,14 @@ def main() -> None:
     for t in threads:
         t.start()
 
-    # Live filter + pagination: keyboard thread (Windows only)
+    # SSH checker: single thread, own interval (lightweight)
+    ssh_thread = threading.Thread(
+        target=ssh_checker_worker,
+        args=(targets, ssh_interval, ssh_port),
+        daemon=True,
+    )
+    ssh_thread.start()
+
     def keyboard_filter_thread() -> None:
         global filter_query, status_filter, current_page
         if not IS_WINDOWS:
@@ -434,36 +467,35 @@ def main() -> None:
             while not stop_event.is_set():
                 if msvcrt.kbhit():
                     ch = msvcrt.getch()
-                    if ch == b"\x1b":  # Esc
+                    if ch == b"\x1b":
                         with filter_lock:
                             filter_query = ""
                             current_page = 1
                         continue
-                    if ch == b"\xe0":  # Arrow / special key prefix; consume next byte
+                    if ch == b"\xe0":
                         if msvcrt.kbhit():
                             key2 = msvcrt.getch()
                             with filter_lock:
-                                if key2 == b"\x4b":  # Left arrow
+                                if key2 == b"\x4b":
                                     current_page = max(1, current_page - 1)
-                                elif key2 == b"\x4d":  # Right arrow
+                                elif key2 == b"\x4d":
                                     current_page += 1
-                                elif key2 == b"\x49":  # Page Up
+                                elif key2 == b"\x49":
                                     current_page = max(1, current_page - 1)
-                                elif key2 == b"\x51":  # Page Down
+                                elif key2 == b"\x51":
                                     current_page += 1
-                                elif key2 == b"\x47":  # Home
+                                elif key2 == b"\x47":
                                     current_page = 1
-                                elif key2 == b"\x4f":  # End
-                                    current_page = 9999  # layout clamps to total_pages
+                                elif key2 == b"\x4f":
+                                    current_page = 9999
                         continue
-                    if ch == b"\x08":  # Backspace
+                    if ch == b"\x08":
                         with filter_lock:
                             filter_query = filter_query[:-1]
                         continue
                     try:
                         char = ch.decode("utf-8", errors="replace")
                         char_lower = char.lower()
-                        # Reachability filter: u=UP only, d=DOWN only, a=all (reset to page 1)
                         if char_lower == "u":
                             with filter_lock:
                                 status_filter = "up"
@@ -480,7 +512,6 @@ def main() -> None:
                                 current_page = 1
                             continue
                         if char_lower == "i":
-                            # Cycle ping interval: next preset (0.5 -> 1 -> 2 -> 5 -> 0.5)
                             idx = next(
                                 (i for i, p in enumerate(INTERVAL_PRESETS) if p >= current_ping_interval[0]),
                                 0,
@@ -490,7 +521,7 @@ def main() -> None:
                         if char.isprintable():
                             with filter_lock:
                                 filter_query += char
-                                current_page = 1  # reset page when filter text changes
+                                current_page = 1
                     except Exception:
                         pass
                 time.sleep(0.05)
@@ -522,6 +553,7 @@ def main() -> None:
         stop_event.set()
         for t in threads:
             t.join(timeout=PING_INTERVAL * 2)
+        ssh_thread.join(timeout=ssh_interval + 5)
     console.print("[dim]Stopped.[/dim]")
 
 

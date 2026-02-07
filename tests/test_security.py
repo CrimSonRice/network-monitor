@@ -20,7 +20,6 @@ def test_jwt_create_and_verify() -> None:
 def test_jwt_invalid_returns_none() -> None:
     assert verify_token("invalid") is None
     assert verify_token("") is None
-    # Malformed or wrong-signature token returns None
     assert verify_token("eyJhbGciOiJIUzI1NiJ9.e30.wrong") is None
 
 

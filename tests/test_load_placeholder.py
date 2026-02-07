@@ -19,8 +19,3 @@ def test_health_endpoint_low_latency(client: TestClient) -> None:
     elapsed = time.perf_counter() - start
     assert r.status_code == 200
     assert elapsed < 1.0, "Health check should complete under 1s locally"
-
-
-# Example locust file location: tests/locustfile.py
-# Example k6 script: tests/load/k6_health.js
-# Run: locust -f tests/locustfile.py --host=http://localhost:8000
