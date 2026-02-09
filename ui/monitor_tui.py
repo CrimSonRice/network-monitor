@@ -75,53 +75,69 @@ status_filter: str = "all"
 current_page: int = 1
 current_ping_interval: list[float] = [PING_INTERVAL]
 INTERVAL_PRESETS: list[float] = [0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+session_start_time: float = 0.0
 
 
-def ping_worker(target: str, _initial_interval: float) -> None:
+def _do_one_ping(target: str) -> None:
     cmd = ["ping", PING_COUNT, "1", PING_TIMEOUT, PING_TIMEOUT_VAL, target]
+    interval = current_ping_interval[0]
+    start = time.perf_counter()
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=interval + 2,
+        )
+    except subprocess.TimeoutExpired:
+        result = None
+    except Exception:
+        result = None
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    with lock:
+        if target not in stats:
+            return
+        out = (result.stdout or "") if result else ""
+        success = (
+            result
+            and result.returncode == 0
+            and (
+                "Reply from" in out
+                or "bytes from" in out
+                or "received" in out
+                or "ttl=" in out.lower()
+            )
+        )
+        if success:
+            stats[target]["history"].append(1)
+            stats[target]["latency"] = elapsed_ms
+        else:
+            stats[target]["history"].append(0)
+            stats[target]["latency"] = 0
+        hist = list(stats[target]["history"])
+        new_status = "UP" if sum(hist[-3:]) >= 2 else "DOWN"
+        stats[target]["status"] = new_status
+
+
+def ping_worker_pool(targets: list[str]) -> None:
+    """Single thread: round-robin ping all targets. Each target is pinged every ~interval."""
+    n = len(targets)
+    if n == 0:
+        return
     while not stop_event.is_set():
         interval = current_ping_interval[0]
-        start = time.perf_counter()
-        try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=interval + 2,
-            )
-        except subprocess.TimeoutExpired:
-            result = None
-        except Exception:
-            result = None
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-
-        with lock:
-            if target not in stats:
-                break
-            out = (result.stdout or "") if result else ""
-            success = (
-                result
-                and result.returncode == 0
-                and (
-                    "Reply from" in out
-                    or "bytes from" in out
-                    or "received" in out
-                    or "ttl=" in out.lower()
-                )
-            )
-            if success:
-                stats[target]["history"].append(1)
-                stats[target]["latency"] = elapsed_ms
-            else:
-                stats[target]["history"].append(0)
-                stats[target]["latency"] = 0
-            hist = list(stats[target]["history"])
-            stats[target]["status"] = "UP" if sum(hist[-3:]) >= 2 else "DOWN"
-
-        deadline = time.perf_counter() + interval
-        while time.perf_counter() < deadline and not stop_event.is_set():
-            time.sleep(0.1)
+        per_target = max(0.05, interval / n)
+        for target in targets:
+            if stop_event.is_set():
+                return
+            start = time.perf_counter()
+            _do_one_ping(target)
+            elapsed = time.perf_counter() - start
+            deadline = start + per_target
+            while time.perf_counter() < deadline and not stop_event.is_set():
+                time.sleep(0.05)
 
 
 def ssh_check_one(target: str, port: int, timeout: float) -> bool:
@@ -205,6 +221,17 @@ def apply_filter(
     return targets
 
 
+def _format_runtime(seconds: float) -> str:
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    m = int(seconds // 60)
+    if m < 60:
+        return f"{m}m"
+    h = m // 60
+    m = m % 60
+    return f"{h}h{m}m"
+
+
 def build_header(
     target_list: list[str],
     all_targets: list[str],
@@ -219,8 +246,20 @@ def build_header(
         total_online = sum(1 for ip in all_targets if stats.get(ip, {}).get("status") == "UP")
         total_offline = len(all_targets) - total_online
         ssh_unreachable = sum(1 for ip in all_targets if stats.get(ip, {}).get("ssh") != "OK")
+        latencies = [stats[ip]["latency"] for ip in all_targets if stats.get(ip, {}).get("status") == "UP" and stats[ip]["latency"] > 0]
+        flips = 0
+        for ip in all_targets:
+            hist = list(stats.get(ip, {}).get("history", []))
+            for i in range(len(hist) - 1):
+                if hist[i] != hist[i + 1]:
+                    flips += 1
     total = len(all_targets)
     shown = len(target_list)
+    runtime_str = _format_runtime(time.time() - session_start_time) if session_start_time else "0s"
+    lat_info = ""
+    if latencies:
+        lat_info = f"  |  [dim]Lat ms:[/] min [white]{min(latencies)}[/] avg [white]{sum(latencies) // len(latencies)}[/] max [white]{max(latencies)}[/]"
+    flips_info = f"  |  [dim]Flips:[/] [yellow]{flips}[/]" if flips else ""
     filter_info = ""
     if filter_str.strip():
         filter_info = f"  |  [yellow]Filter:[/] [bold]{filter_str.strip()}[/]  [dim]({shown}/{total})[/]"
@@ -233,14 +272,21 @@ def build_header(
     end_one = min(page * page_size, total_filtered) if total_filtered else 0
     page_info = f"  |  [bold cyan]Page[/] {page}/{total_pages}  [dim]Targets {start_one}-{end_one} of {total_filtered}[/]"
     nav_hint = "  |  [dim]← → prev/next  Home/End first/last[/]"
-    return Panel(
+    line1 = (
+        f"[bold]Run:[/] [cyan]{runtime_str}[/]  |  "
         f"[bold white]TOTAL:[/] {total}  |  "
-        f"[bold green]Total online:[/] {total_online}  |  "
-        f"[bold red]Total offline:[/] {total_offline}  |  "
-        f"[bold]No SSH:[/] [red]{ssh_unreachable}[/]  |  "
+        f"[bold green]Online:[/] {total_online}  |  "
+        f"[bold red]Offline:[/] {total_offline}  |  "
+        f"[bold]No SSH:[/] [red]{ssh_unreachable}[/]"
+        f"{lat_info}{flips_info}  |  "
         f"[dim]Interval: {current_ping_interval[0]}s  Window: {WINDOW_SIZE}[/]"
+    )
+    line2 = (
         f"{filter_info}{status_info}{page_info}{nav_hint}"
-        f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval  filter: comma/space = multiple[/]",
+        f"  |  [dim]Esc=clear  u=UP d=DOWN a=all  i=interval  filter: comma/space = multiple[/]"
+    )
+    return Panel(
+        Text.from_markup(line1) + Text("\n") + Text.from_markup(line2),
         style="cyan",
         border_style="bright_blue",
     )
@@ -311,7 +357,7 @@ def build_layout(
 
     root = Layout()
     root.split_column(
-        Layout(name="header", size=3),
+        Layout(name="header", size=4),
         Layout(name="body"),
     )
     root["body"].split_row(
@@ -446,14 +492,9 @@ def main() -> None:
     for t in targets:
         stats[t] = make_stats()
 
-    threads = [
-        threading.Thread(target=ping_worker, args=(t, PING_INTERVAL), daemon=True)
-        for t in targets
-    ]
-    for t in threads:
-        t.start()
+    ping_thread = threading.Thread(target=ping_worker_pool, args=(targets,), daemon=True)
+    ping_thread.start()
 
-    # SSH checker: single thread, own interval (lightweight)
     ssh_thread = threading.Thread(
         target=ssh_checker_worker,
         args=(targets, ssh_interval, ssh_port),
@@ -538,6 +579,9 @@ def main() -> None:
         with filter_lock:
             return filter_query, status_filter, current_page
 
+    global session_start_time
+    session_start_time = time.time()
+
     try:
         fq, sf, cp = get_filter_state()
         with Live(
@@ -554,8 +598,7 @@ def main() -> None:
         pass
     finally:
         stop_event.set()
-        for t in threads:
-            t.join(timeout=PING_INTERVAL * 2)
+        ping_thread.join(timeout=current_ping_interval[0] * len(targets) + 10)
         ssh_thread.join(timeout=ssh_interval + 5)
     console.print("[dim]Stopped.[/dim]")
 

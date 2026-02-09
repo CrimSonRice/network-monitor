@@ -65,16 +65,18 @@ python -m ui.monitor_tui ... -f 8.8          # filter by substring
 python -m ui.monitor_tui ... -s up           # reachable only
 python -m ui.monitor_tui ... -s down         # unreachable only
 python -m ui.monitor_tui ... --page-size 30  # 30 per page (for 300+ IPs)
-python -m ui.monitor_tui ... --ssh-interval 20 --ssh-port 22  # SSH port check (default 15s, port 22)
+python -m ui.monitor_tui ... --ssh-interval 600 --ssh-port 22  # SSH check (default 600s / 10 min, port 22)
 ```
 
-**SSH column:** Shows whether each host’s SSH port (default 22) is open (OK) or not (NO). Check runs on a separate, lighter interval so it doesn’t follow ping frequency.
+**Header:** Run time (session age), total/online/offline, No SSH count, latency min/avg/max (UP hosts), status flips in window, and alert history count.
 
-**Filters (Windows, while running):** Type to filter by text; **Esc** clears. **u** = UP only, **d** = DOWN only, **a** = all.
+**SSH column:** Shows whether each host’s SSH port (default 22) is open (OK) or not (NO). Check runs every 10 min by default to avoid rate limits.
+
+**Filters (Windows, while running):** Type to filter; use **comma or space** to search multiple IPs at once (e.g. `8.8.8.8, 1.1.1.1`). **Esc** clears. **u** = UP + SSH OK, **d** = DOWN or no SSH, **a** = all.
 
 **Pagination:** Header shows "Page X of Y" and "Targets A–B of N". **←** = previous page, **→** = next page, **Home** = first page, **End** = last page. Use `--page-size N` or env `PAGE_SIZE` to set targets per page (default 100).
 
-Optional env: `PING_INTERVAL`, `WINDOW_SIZE`, `REFRESH_RATE`, `PAGE_SIZE`, `SSH_CHECK_INTERVAL`, `SSH_PORT`. Press **Ctrl+C** to exit.
+Optional env: `PING_INTERVAL`, `WINDOW_SIZE`, `REFRESH_RATE`, `PAGE_SIZE`, `SSH_CHECK_INTERVAL` (default 600), `SSH_PORT`. One ping thread handles all targets (scales to 300+). Press **Ctrl+C** to exit.
 
 ### API (optional)
 
